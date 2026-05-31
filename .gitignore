@@ -1,0 +1,10 @@
+node_modules/
+dist/
+static/
+auth.json
+.pball-profile/
+targets.json
+bookings.log
+capture.json
+debug/
+*.tmp

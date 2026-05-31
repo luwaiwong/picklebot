@@ -1,0 +1,39 @@
+{
+  "name": "pball",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Local bot to book City of Markham drop-in pickleball the instant a slot opens",
+  "scripts": {
+    "dev": "concurrently -k \"npm:dev:server\" \"npm:dev:web\"",
+    "dev:server": "tsx watch src/server.ts",
+    "dev:web": "vite",
+    "build": "vite build",
+    "start": "npm run build && tsx src/server.ts",
+    "typecheck": "tsc --noEmit && svelte-check --tsconfig ./web/tsconfig.json",
+    "test": "tsx --test src/**/*.test.ts",
+    "install-browsers": "playwright install chromium",
+    "login": "tsx scripts/login.ts",
+    "codegen": "playwright codegen --save-storage=auth.json \"https://cityofmarkham.perfectmind.com/Menu/MemberRegistration/MemberSignIn\"",
+    "capture": "tsx scripts/capture.ts"
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.13.7",
+    "croner": "^9.0.0",
+    "hono": "^4.6.14",
+    "luxon": "^3.5.0",
+    "playwright": "^1.49.1",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "^7.1.2",
+    "@types/luxon": "^3.4.2",
+    "@types/node": "^22.10.2",
+    "concurrently": "^10.0.0",
+    "svelte": "^5.56.0",
+    "svelte-check": "^4.4.8",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vite": "^8.0.14"
+  }
+}

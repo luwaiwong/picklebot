@@ -1,0 +1,15 @@
+[Unit]
+Description=pball — Markham pickleball booking bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/luwai/proj/pball
+ExecStart=/usr/bin/npm run start
+Restart=always
+RestartSec=5
+Environment=PBALL_PORT=8787
+
+[Install]
+WantedBy=default.target
