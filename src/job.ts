@@ -1,6 +1,7 @@
 import { events } from "./events.js";
 import * as booker from "./booker.js";
 import { profileLock } from "./profile.js";
+import type { Creds } from "./creds.js";
 import type { JobState } from "./shared/types.js";
 
 // Single active job manager. The bot runs ONE book-by-code job at a time; a second start()
@@ -31,7 +32,10 @@ function emitJob(): void {
 export const jobManager = {
   snapshot,
 
-  start(code: string): { ok: boolean; busy?: boolean; state: JobState } {
+  start(
+    code: string,
+    creds?: Creds | null,
+  ): { ok: boolean; busy?: boolean; state: JobState } {
     // single-profile mutex: rejects if a job is already running OR a login window is open.
     if (!profileLock.acquire("booking")) {
       return { ok: false, busy: true, state: snapshot() };
@@ -48,7 +52,7 @@ export const jobManager = {
     const ac = abort;
     // fire-and-forget: the route returns immediately; settle updates JobState.
     running = booker
-      .run(code, (e) => events.emit(e), ac.signal)
+      .run(code, (e) => events.emit(e), ac.signal, creds)
       .then(
         (result) => {
           state.phase = result.ok ? "success" : "failed";

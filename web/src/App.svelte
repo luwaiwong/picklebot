@@ -1,7 +1,8 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { subscribeEvents, getHealth, login } from './lib/api';
+  import { subscribeEvents, getHealth } from './lib/api';
   import type { JobState } from './lib/types';
+  import AccountForm from './lib/AccountForm.svelte';
   import BookForm from './lib/BookForm.svelte';
   import LiveLog from './lib/LiveLog.svelte';
 
@@ -16,7 +17,7 @@
   let loginActive = $state(false);
   let loginHint = $state('');
 
-  // Login button is unavailable while a login window is open or a booking is running.
+  // Book + Save&Log in are unavailable while a login is in flight or a booking is running.
   const loginBusy = $derived(loginActive || job.phase === 'running');
 
   onMount(() => {
@@ -31,28 +32,14 @@
       if (e.type === 'job') {
         job = e.state;
       } else if (e.type === 'login') {
-        loginActive = e.state === 'opening' || e.state === 'open';
-        if (e.state === 'signed-in') loginHint = '✓ signed in — session saved.';
-        else if (e.state === 'closed') loginHint = '';
-        else if (e.state === 'error') loginHint = '✗ login failed' + (e.detail ? ': ' + e.detail : '');
+        loginActive = e.state === 'logging-in';
+        if (e.state === 'logging-in') loginHint = '';
+        else if (e.state === 'logged-in') loginHint = '✓ signed in';
+        else loginHint = '✗ login failed' + (e.detail ? ' — ' + e.detail : ''); // login-failed | error
       }
     });
     return () => es.close();
   });
-
-  async function handleLogin() {
-    loginHint = '';
-    const res = await login();
-    if (res.status === 409) {
-      loginHint = 'Busy — a booking or login is already in progress.';
-      return;
-    }
-    if (res.ok) {
-      loginHint = 'A browser window opened — sign in to Markham, then close it.';
-    } else {
-      loginHint = res.data?.error ? String(res.data.error) : 'Could not start login.';
-    }
-  }
 </script>
 
 <header>
@@ -71,13 +58,12 @@
       <span class="dim">idle</span>
     {/if}
   </div>
-  <button class="ghost login-btn" onclick={handleLogin} disabled={loginBusy}>Log in to Markham</button>
 </header>
 
 {#if loginActive || loginHint}
-  <div class="login-strip" class:active={loginActive}>
+  <div class="login-strip" class:active={loginActive} class:bad={!loginActive && loginHint.startsWith('✗')}>
     {#if loginActive}
-      <span class="pulse">●</span> login window open — sign in &amp; close it
+      <span class="pulse">●</span> logging in…
     {:else}
       {loginHint}
     {/if}
@@ -85,6 +71,10 @@
 {/if}
 
 <main>
+  <section class="card">
+    <AccountForm disabled={loginBusy} />
+  </section>
+
   <section class="card">
     <BookForm phase={job.phase} {loginActive} />
   </section>
@@ -123,8 +113,6 @@
   .banner.bad { color: var(--err); border-color: var(--err); background: rgba(191, 97, 106, 0.12); }
   .banner.bad .code { color: var(--err); }
 
-  .login-btn { flex: none; white-space: nowrap; }
-
   .login-strip {
     display: flex; align-items: center; gap: 7px;
     padding: 9px 24px;
@@ -135,6 +123,7 @@
   }
   .login-strip.active { color: var(--acc); background: var(--acc-soft); border-color: var(--acc-line); }
   .login-strip.active .pulse { animation: blink 1.1s ease-in-out infinite; }
+  .login-strip.bad { color: var(--err); background: rgba(191, 97, 106, 0.12); border-color: var(--err); }
 
   @media (max-width: 600px) {
     .banner { max-width: 100%; }

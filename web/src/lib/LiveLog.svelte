@@ -31,7 +31,7 @@
         text = `▸ ${e.state.phase}${e.state.code ? ' #' + e.state.code : ''}`;
         break;
       case 'login':
-        cls = e.state === 'error' ? 'lvl-error' : 'ev';
+        cls = e.state === 'login-failed' || e.state === 'error' ? 'lvl-error' : 'ev';
         text = `🔐 login ${e.state}${e.detail ? ' — ' + e.detail : ''}`;
         break;
     }

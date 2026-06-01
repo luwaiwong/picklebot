@@ -2,4 +2,4 @@ export type { BookStatus, BookResult, JobState, JobPhase, LogEvent } from '../..
 import type { JobState } from '../../../src/shared/types';
 
 // GET /api/health response shape.
-export type Health = { uptimeSec: number; job: JobState; loginActive: boolean };
+export type Health = { uptimeSec: number; job: JobState };

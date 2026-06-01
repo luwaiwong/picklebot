@@ -8,6 +8,7 @@ import {
   type BookStatus,
   type LogEvent,
 } from "./shared/types.js";
+import { ensureLoggedIn, type Creds } from "./auth.js";
 
 // ── Book-by-code booker ──
 // Drives the public Classes list page by READING and CLICKING, exactly like a human:
@@ -47,7 +48,8 @@ interface Row {
 export async function run(
   code: string,
   emit: Emit,
-  signal?: AbortSignal,
+  signal: AbortSignal | undefined,
+  creds: Creds,
 ): Promise<BookResult> {
   const log = (level: "info" | "warn" | "error", msg: string) =>
     emit({ type: "log", level, msg, code, at: nowIso() });
@@ -108,6 +110,17 @@ export async function run(
       const g = globalThis as unknown as { __name?: (f: unknown) => unknown };
       g.__name ??= (f) => f;
     });
+
+    // Log in BEFORE booking when creds are configured; otherwise rely on the existing session
+    // (the auth-expired sign-in redirect check downstream still guards an unauthenticated run).
+    if (creds) {
+      const r = await ensureLoggedIn(page, creds, emit, signal);
+      if (!r.ok) {
+        return result("login-failed", false, {
+          detail: r.detail ?? `login ${r.status}`,
+        });
+      }
+    }
 
     log("info", `booking code #${code}`);
 
