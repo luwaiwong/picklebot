@@ -1,29 +1,31 @@
-# pball — Markham drop-in pickleball booker
+# pball — Markham drop-in booker
 
-A local bot that books City of Markham drop-in pickleball the instant a slot opens
-(~18 h before the session, for residents). Configure targets in a web UI; the bot
-schedules each one, waits through any Queue-it line, and books — **only if the slot is
-free** (configurable) and not full.
+A local bot that books a City of Markham **drop-in** session **on demand, by code** — works for
+any drop-in activity in the Markham drop-in widget (pickleball, badminton, volleyball, …), not
+just one sport. Enter the session's numeric activity code in the web UI; the bot immediately
+opens the site, finds that row, opens its landing page, and waits (bounded) for the **Register**
+button to appear — then clicks it and selects the first family member, stopping just before the
+final/payment confirm.
 
 ## How it works
 
-- **Read/detect:** polls the solved `ClassesV2` JSON API to watch a slot flip to "Register".
-- **Commit:** drives a real Chromium (Playwright) using your saved login session, so the
-  Queue-it token + ASP.NET anti-forgery are handled like a human.
-- **Login:** done **once, by hand** (`npm run codegen`) — the bot reuses the session cookies;
-  it never stores or types your password, and never hits the login reCAPTCHA at run time.
-- **One-shot:** each scheduled target runs exactly once, then is **deleted**. Alternate
-  times = separate targets.
+1. **You enter a code** — the numeric activity code (`#NNNNNN`, == the site's `CourseId`) shown
+   on the Classes list for the session you want.
+2. **Find + open:** the bot opens the public Classes list (default widget + calendar), matches
+   the row by that code, and clicks its button to navigate to the activity landing page.
+3. **Wait for "Register":** it refreshes the landing page until `Register` appears (the site
+   only renders it once registration opens), up to ~10 minutes, then clicks it.
+4. **Select attendee:** it checks the first family member on the attendee step and stops there.
+   The final/payment confirm is **not** automated.
+5. **Queue-it:** if a Queue-it waiting room appears at any point, the bot holds position
+   passively until released (tokens are server-signed; nothing to solve).
 
-## Safety gates
+It drives a real Chromium (Playwright) using your saved login session, so the Queue-it token +
+ASP.NET anti-forgery are handled like a human. Only **one** job runs at a time — starting a new
+one while a job is running is rejected as busy; use **Stop** to cancel the active job.
 
-- **Cost:** **free only** — not configurable. The bot reads the real price at the confirm
-  step; if it is anything other than **$0** it **stops and reports** (`too-expensive`),
-  never charging you.
-- **Full:** joins the **waitlist** when the event offers one, else reports `full-no-waitlist`.
-- **Dry run:** per-target toggle — does everything except the final confirm.
-- ⚠️ **No-show policy:** Markham suspends memberships for *"frequent no-shows or misuse of
-  pre-registering."* Only auto-book sessions you will actually attend.
+⚠️ **No-show policy:** Markham suspends memberships for *"frequent no-shows or misuse of
+pre-registering."* Only book sessions you will actually attend.
 
 ## Setup (run order)
 
@@ -31,39 +33,22 @@ free** (configurable) and not full.
 npm install
 npm run install-browsers          # playwright chromium
 
-# 1) Log in ONCE by hand (solve the reCAPTCHA) -> saves auth.json
-npm run codegen
+# 1) Log in ONCE by hand into the persistent profile (solve the reCAPTCHA)
+npm run login                     # opens a browser; sign in, then close it
 
-# 2) Capture the booking commit flow + selectors -> capture.json  (see M3 below)
-npm run capture
-
-# 3) Start the app (leave it running)
+# 2) Start the app (leave it running)
 npm run dev                       # two processes: Hono API (:8787) + Vite dev (:5173)
                                   # open http://localhost:5173 — Vite proxies /api + /events to the backend
 ```
 
-`npm run dev` runs the backend (`tsx watch src/server.ts`) and the Vite dev server
-(`vite`, hot-reloading the `web/` Svelte app) together via `concurrently`. For a
-production-style run, `npm start` builds the frontend (`vite build` → `static/`) and
-serves it from Hono on http://localhost:8787.
+`npm run login` opens a browser against the Markham sign-in page using the persistent profile
+(`PBALL_USER_DATA_DIR`, default `.pball-profile`). Sign in, then close the window — the session
+persists to disk and is reused by every booker run (no `auth.json`, no password stored).
 
-### M3 — capture the commit selectors (one time)
-
-`npm run capture` opens a browser with your session and logs the booking requests. Click
-through Register → confirm on a real session (stop before the final confirm if there's a
-fee). Then fill `src/booker.ts` → `config.selectors`:
-
-| selector | what |
-|---|---|
-| `loggedInMarker` | account/sign-out link present only when logged in |
-| `registerButton` | the Register / Add button on the landing page |
-| `priceText` | element showing the price/total (drives the cost gate) |
-| `confirmButton` | the final, irreversible confirm |
-| `confirmSuccess` | success indicator after booking |
-| `waitlistButton` | "Join waitlist" button (full + waitlist offered) |
-| `slotTakenError` | error shown if the spot was grabbed first |
-
-Until these are filled the bot fails **safe**: it reports `not-captured` instead of clicking.
+`npm run dev` runs the backend (`tsx watch src/server.ts`) and the Vite dev server (`vite`,
+hot-reloading the `web/` Svelte app) together via `concurrently`. For a production-style run,
+`npm start` builds the frontend (`vite build` → `static/`) and serves it from Hono on
+http://localhost:8787.
 
 ## Keep it running (Arch, systemd --user)
 
@@ -76,20 +61,17 @@ journalctl --user -u pball -f            # logs
 
 ## Re-login when the session expires
 
-The UI shows a red **auth expired** line. Re-run `npm run codegen`. No code change needed.
+The UI shows a red **auth expired** line. Re-run `npm run login`. No code change needed.
 
 ## Files
 
 | path | role |
 |---|---|
-| `src/shared/types.ts` | zod `Target` schema + constants (single source of truth) |
-| `src/db.ts` | JSON persistence (`targets.json`) |
+| `src/shared/types.ts` | zod `BookRequest` schema + job/result/event types + constants |
 | `src/events.ts` | SSE bus + `bookings.log` audit trail |
-| `src/timezone.ts` | DST-safe release math (luxon) + `/Date(ms)/` parsing |
-| `src/markham.ts` | ClassesV2/GetEvent adapter; resolve-by-attribute; cost/waitlist parsing |
-| `src/booker.ts` | Playwright worker: queue-it, window poll, cost/full/dry-run gates, commit |
-| `src/scheduler.ts` | croner one-shot jobs; delete-after-run |
-| `src/server.ts` | Hono REST + SSE + static UI |
-| `web/` | Vite + Svelte 5 frontend (config UI + live log); `web/src/App.svelte` is the root |
+| `src/booker.ts` | Playwright worker: find-by-code, queue-it, wait-for-Register, attendee select |
+| `src/job.ts` | single active-job manager (start / stop / snapshot, broadcasts `JobState`) |
+| `src/server.ts` | Hono REST (`/api/book`, `/api/stop`, `/api/health`) + SSE + static UI |
+| `web/` | Vite + Svelte 5 frontend (code form + live log); `web/src/App.svelte` is the root |
 | `static/` | **generated** by `vite build` (gitignored); Hono serves it as the UI |
-| `scripts/capture.ts` | one-time selector/request capture helper |
+| `scripts/login.ts` | one-time login into the persistent profile |

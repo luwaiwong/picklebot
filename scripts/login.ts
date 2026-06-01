@@ -3,7 +3,8 @@ import { BASE_URL } from '../src/shared/types.js';
 
 // One-time login into the persistent profile the booker reuses (PBALL_USER_DATA_DIR, default
 // .pball-profile). Sign in to Markham in the window, then close it — the session is written to
-// the profile on disk and reused by every booker run, so you never need auth.json or codegen.
+// the profile on disk and reused by every booker run. CLI fallback for the in-app Login button
+// (which launches this same flow from the server); no password is ever stored.
 const USER_DATA_DIR = process.env.PBALL_USER_DATA_DIR ?? '.pball-profile';
 const SIGNIN_URL = `${BASE_URL}/Menu/MemberRegistration/MemberSignIn`;
 

@@ -27,8 +27,8 @@ class Bus {
     }
   }
 
-  log(level: 'info' | 'warn' | 'error', msg: string, targetId?: string): void {
-    this.emit({ type: 'log', level, msg, targetId, at: new Date().toISOString() });
+  log(level: 'info' | 'warn' | 'error', msg: string, code?: string): void {
+    this.emit({ type: 'log', level, msg, code, at: new Date().toISOString() });
     console.log(`[${level}] ${msg}`);
   }
 

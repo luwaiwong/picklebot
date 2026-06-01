@@ -3,15 +3,13 @@
   import { subscribeEvents } from './api';
   import type { LogEvent } from './types';
 
-  let { onDeleted }: { onDeleted: () => void } = $props();
-
   type Line = { cls: string; ts: string; text: string };
   let lines = $state<Line[]>([]);
   let logEl: HTMLDivElement;
 
   const MAX = 1000;
 
-  function render(e: LogEvent): Line | null {
+  function render(e: LogEvent): Line {
     const ts = new Date(e.at).toLocaleTimeString();
     let cls = '';
     let text = '';
@@ -20,26 +18,21 @@
         cls = 'lvl-' + e.level;
         text = e.msg;
         break;
-      case 'scheduled':
-        cls = 'ev';
-        text = `⏰ scheduled "${e.label}" → fire ${new Date(e.fireAt).toLocaleString()}`;
-        break;
       case 'queue':
         cls = 'ev';
         text = `🚦 queue ${e.state}`;
         break;
-      case 'auth':
-        cls = e.valid ? 'ev' : 'lvl-error';
-        text = e.valid ? '🔓 auth ok' : '🔒 auth EXPIRED — run `npm run codegen`';
-        break;
       case 'result':
         cls = e.result.ok ? 'ev' : 'lvl-warn';
-        text = `🎯 ${e.label}: ${e.result.status}${e.result.detail ? ' — ' + e.result.detail : ''}`;
+        text = `🎯 #${e.code}: ${e.result.status}${e.result.detail ? ' — ' + e.result.detail : ''}`;
         break;
-      case 'deleted':
+      case 'job':
         cls = 'mut';
-        text = `🗑️ removed "${e.label}"`;
-        onDeleted();
+        text = `▸ ${e.state.phase}${e.state.code ? ' #' + e.state.code : ''}`;
+        break;
+      case 'login':
+        cls = e.state === 'error' ? 'lvl-error' : 'ev';
+        text = `🔐 login ${e.state}${e.detail ? ' — ' + e.detail : ''}`;
         break;
     }
     return { cls, ts, text };

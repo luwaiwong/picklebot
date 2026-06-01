@@ -5,7 +5,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-WorkingDirectory=/home/luwai/proj/pball
+WorkingDirectory=/home/luwai/projects/picklebot
 ExecStart=/usr/bin/npm run start
 Restart=always
 RestartSec=5

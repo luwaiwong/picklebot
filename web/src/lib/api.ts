@@ -1,39 +1,41 @@
-import type { Health, LogEvent, TargetRow, WidgetFilters } from './types';
+import type { Health, LogEvent } from './types';
 
-export async function listTargets(): Promise<TargetRow[]> {
-  return fetch('/api/targets').then((r) => r.json());
-}
-
-// POST /api/targets. Body may include `id` for update. On !ok, returns parsed
-// error json so caller can alert; on ok, returns the saved target.
-export async function saveTarget(body: unknown): Promise<{ ok: boolean; data: unknown }> {
-  const res = await fetch('/api/targets', {
+// POST /api/book — start an on-demand booking for a numeric activity code.
+// On 409 the server is busy; data carries { error:'busy', state }.
+export async function book(code: string): Promise<{ ok: boolean; status: number; data: any }> {
+  const res = await fetch('/api/book', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(body),
+    body: JSON.stringify({ code }),
   });
-  return { ok: res.ok, data: await res.json() };
+  return { ok: res.ok, status: res.status, data: await res.json() };
 }
 
-export async function deleteTarget(id: string): Promise<void> {
-  await fetch('/api/targets/' + id, { method: 'DELETE' });
+// POST /api/stop — cancel the running job. Returns { stopped, state }.
+export async function stop(): Promise<any> {
+  return fetch('/api/stop', { method: 'POST' }).then((r) => r.json());
 }
 
-export function runNow(id: string): Promise<Response> {
-  return fetch('/api/targets/' + id + '/run', { method: 'POST' });
+// POST /api/login — open a server-side browser window for the user to sign into Markham.
+// 200 { started:true } | 409 { error:'busy' }.
+export async function login(): Promise<{ ok: boolean; status: number; data: any }> {
+  const res = await fetch('/api/login', { method: 'POST' });
+  return { ok: res.ok, status: res.status, data: await res.json() };
 }
 
 export async function getHealth(): Promise<Health> {
   return fetch('/api/health').then((r) => r.json());
 }
 
-// GET /api/filters — activity + location options from the live Markham widget.
-export async function getFilters(): Promise<WidgetFilters> {
-  return fetch('/api/filters').then((r) => r.json());
-}
-
 export function subscribeEvents(onEvent: (e: LogEvent) => void): EventSource {
   const es = new EventSource('/events');
-  es.onmessage = (m) => onEvent(JSON.parse(m.data) as LogEvent);
+  // one malformed frame must not kill the stream
+  es.onmessage = (m) => {
+    try {
+      onEvent(JSON.parse(m.data) as LogEvent);
+    } catch (err) {
+      console.error('bad SSE frame', err);
+    }
+  };
   return es;
 }
