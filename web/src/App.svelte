@@ -2,7 +2,6 @@
   import { onMount } from 'svelte';
   import { subscribeEvents, getHealth } from './lib/api';
   import type { JobState } from './lib/types';
-  import AccountForm from './lib/AccountForm.svelte';
   import BookForm from './lib/BookForm.svelte';
   import LiveLog from './lib/LiveLog.svelte';
 
@@ -14,28 +13,21 @@
     lastStatus: null,
     lastDetail: null,
   });
-  let loginActive = $state(false);
+  // transient hint surfaced from the `login` SSE events during a booking's login step
   let loginHint = $state('');
-
-  // Book + Save&Log in are unavailable while a login is in flight or a booking is running.
-  const loginBusy = $derived(loginActive || job.phase === 'running');
 
   onMount(() => {
     // seed from health, then live-hydrate from SSE (server pushes a job snapshot on connect)
     getHealth()
-      .then((h) => {
-        if (h?.job) job = h.job;
-        loginActive = !!h?.loginActive;
-      })
+      .then((h) => { if (h?.job) job = h.job; })
       .catch(() => { /* banner stays idle */ });
     const es = subscribeEvents((e) => {
       if (e.type === 'job') {
         job = e.state;
+        if (e.state.phase !== 'running') loginHint = ''; // clear once the job settles
       } else if (e.type === 'login') {
-        loginActive = e.state === 'logging-in';
-        if (e.state === 'logging-in') loginHint = '';
-        else if (e.state === 'logged-in') loginHint = '✓ signed in';
-        else loginHint = '✗ login failed' + (e.detail ? ' — ' + e.detail : ''); // login-failed | error
+        // login happens during a booking; logged-in continues to booking, failures land on the banner
+        loginHint = e.state === 'logging-in' ? '● logging in…' : '';
       }
     });
     return () => es.close();
@@ -60,23 +52,13 @@
   </div>
 </header>
 
-{#if loginActive || loginHint}
-  <div class="login-strip" class:active={loginActive} class:bad={!loginActive && loginHint.startsWith('✗')}>
-    {#if loginActive}
-      <span class="pulse">●</span> logging in…
-    {:else}
-      {loginHint}
-    {/if}
-  </div>
+{#if loginHint}
+  <div class="login-strip active">{loginHint}</div>
 {/if}
 
 <main>
   <section class="card">
-    <AccountForm disabled={loginBusy} />
-  </section>
-
-  <section class="card">
-    <BookForm phase={job.phase} {loginActive} />
+    <BookForm phase={job.phase} />
   </section>
 
   <section class="card">
@@ -121,9 +103,7 @@
     background: var(--surface-2);
     border-bottom: 1px solid var(--line);
   }
-  .login-strip.active { color: var(--acc); background: var(--acc-soft); border-color: var(--acc-line); }
-  .login-strip.active .pulse { animation: blink 1.1s ease-in-out infinite; }
-  .login-strip.bad { color: var(--err); background: rgba(191, 97, 106, 0.12); border-color: var(--err); }
+  .login-strip.active { color: var(--acc); background: var(--acc-soft); border-color: var(--acc-line); animation: blink 1.4s ease-in-out infinite; }
 
   @media (max-width: 600px) {
     .banner { max-width: 100%; }

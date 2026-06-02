@@ -79,6 +79,8 @@ export async function run(
   const userDataDir = process.env.PBALL_USER_DATA_DIR ?? ".pball-profile";
 
   let cleanup: () => Promise<void> = async () => {};
+  // when true, skip cleanup so the Chrome window stays open after a successful run.
+  let keepBrowserOpen = false;
   try {
     let ctx: BrowserContext;
     let page: Page;
@@ -111,15 +113,13 @@ export async function run(
       g.__name ??= (f) => f;
     });
 
-    // Log in BEFORE booking when creds are configured; otherwise rely on the existing session
-    // (the auth-expired sign-in redirect check downstream still guards an unauthenticated run).
-    if (creds) {
-      const r = await ensureLoggedIn(page, creds, emit, signal);
-      if (!r.ok) {
-        return result("login-failed", false, {
-          detail: r.detail ?? `login ${r.status}`,
-        });
-      }
+    // Log in BEFORE booking (ensureLoggedIn short-circuits to ok if the profile session is still
+    // valid, so a still-authenticated profile won't be needlessly re-logged-in).
+    const r = await ensureLoggedIn(page, creds, emit, signal);
+    if (!r.ok) {
+      return result("login-failed", false, {
+        detail: r.detail ?? `login ${r.status}`,
+      });
     }
 
     log("info", `booking code #${code}`);
@@ -163,10 +163,14 @@ export async function run(
     await passQueueIfPresent(page, code, emit, log, signal);
     await page.waitForLoadState("domcontentloaded").catch(() => {});
     await mkdir("debug", { recursive: true }).catch(() => {});
-    await page.screenshot({ path: `debug/clicked-${code}.png` }).catch(() => {});
+    await page
+      .screenshot({ path: `debug/clicked-${code}.png` })
+      .catch(() => {});
     if (/MemberRegistration\/MemberSignIn/i.test(page.url())) {
       log("error", "redirected to sign-in — run `npm run login` to re-login");
-      return result("auth-expired", false, { detail: "not logged in at click" });
+      return result("auth-expired", false, {
+        detail: "not logged in at click",
+      });
     }
     log("info", `on landing page → ${page.url()}`);
 
@@ -231,6 +235,9 @@ export async function run(
       .catch(() => {});
 
     // scope ends here: first attendee selected; Next / Fees / Payment not automated.
+    // leave the window open so the user can finish Next / Fees / Payment by hand.
+    keepBrowserOpen = true;
+    log("info", "leaving browser open — finish Next / Fees / Payment manually");
     return result("booked", true, {
       detail: `attendee selected → ${page.url()}`,
     });
@@ -247,7 +254,7 @@ export async function run(
     log("error", msg);
     return result("error", false, { detail: msg });
   } finally {
-    await cleanup();
+    if (!keepBrowserOpen) await cleanup();
   }
 }
 
