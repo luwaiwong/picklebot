@@ -66,8 +66,8 @@ journalctl --user -u pball -f            # logs
 
 If the bot can't sign in, the booking ends with **login-failed** and a reason in the live log
 (bad email/password, or a captcha/device-verification **challenge** the headless login can't
-solve). For a challenge, sign in once manually via the CLI fallback (`npm run login`) to clear
-the device check on the profile, then re-Book — the reused session skips the login step.
+solve). For bad credentials, correct them and re-Book. A captcha/device-verification challenge
+can't be solved headlessly — re-Book to retry (the session is reused while it stays valid).
 
 ## Files
 
@@ -82,4 +82,3 @@ the device check on the profile, then re-Book — the reused session skips the l
 | `src/server.ts` | Hono REST (`/api/book`, `/api/stop`, `/api/health`) + SSE + static UI |
 | `web/` | Vite + Svelte 5 frontend (book form with code + creds, live log); `web/src/App.svelte` is the root |
 | `static/` | **generated** by `vite build` (gitignored); Hono serves it as the UI |
-| `scripts/login.ts` | CLI fallback: manual headed login into the profile (e.g. to clear a device-verification challenge) |

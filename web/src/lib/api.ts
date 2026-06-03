@@ -1,7 +1,7 @@
 import type { Health, LogEvent } from './types';
 
 // POST /api/book — log in with the given creds then start an on-demand booking.
-// Creds are transient (entered per booking, never persisted client-side).
+// Creds are sent per booking; the UI persists them client-side (localStorage) for prefill, never server-side.
 // On 409 the server is busy; data carries { error:'busy', state }.
 export async function book(
   code: string,

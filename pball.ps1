@@ -1,11 +1,50 @@
 # === pball one-click launcher (Windows / PowerShell) ===
 # Right-click -> "Run with PowerShell", or run: powershell -ExecutionPolicy Bypass -File pball.ps1
-# First run installs deps + the Playwright browser and does the one-time login.
+# First run installs deps + the Playwright browser. You sign in from the UI when you book.
 # Then it builds the UI and serves it at http://localhost:8787 (opens your browser).
 
 $ErrorActionPreference = 'Stop'
 Set-Location -Path $PSScriptRoot
 $Host.UI.RawUI.WindowTitle = 'pball - Markham drop-in booker'
+
+# --- update from GitHub before starting ---
+if ((Get-Command git -ErrorAction SilentlyContinue) -and (Test-Path '.git')) {
+  Write-Host '[pball] Fetching latest update from GitHub...'
+  git fetch
+  Write-Host '[pball] Pulling latest update from GitHub...'
+  git pull
+}
+else {
+  Write-Host '[pball] Git checkout not found; skipping GitHub update.'
+}
+
+# --- full restart: stop any prior pball server still holding the port ---
+$env:PBALL_PORT = '8787'
+$port = [int]$env:PBALL_PORT
+Write-Host "[pball] Checking for a running instance on port $port..."
+$existingPids = @()
+try {
+  $existingPids = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction Stop |
+    Select-Object -ExpandProperty OwningProcess -Unique
+}
+catch {
+  # fallback for systems without Get-NetTCPConnection
+  $existingPids = netstat -ano |
+    Select-String ":$port\s+.*LISTENING" |
+    ForEach-Object { ($_ -split '\s+')[-1] } |
+    Sort-Object -Unique
+}
+foreach ($procId in $existingPids) {
+  if ($procId -and $procId -ne 0 -and $procId -ne $PID) {
+    try {
+      Write-Host "[pball] Stopping existing instance (PID $procId) for a clean restart..."
+      Stop-Process -Id $procId -Force -ErrorAction Stop
+    }
+    catch {
+      Write-Host "[pball] Could not stop PID ${procId}: $_"
+    }
+  }
+}
 
 # --- require Node.js ---
 if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
@@ -23,17 +62,8 @@ try {
     npm run install-browsers
   }
 
-  # --- one-time login: persistent profile must exist ---
-  if (-not (Test-Path '.pball-profile')) {
-    Write-Host '[pball] No saved login. A browser will open on the Markham sign-in page.'
-    Write-Host '[pball] Sign in (solve the reCAPTCHA), then CLOSE the browser window.'
-    Read-Host 'Press Enter to open the sign-in browser'
-    npm run login
-  }
-
   # --- open the UI shortly after the server starts, then run the server (blocking) ---
-  $env:PBALL_PORT = '8787'
-  $url = "http://localhost:$($env:PBALL_PORT)"
+  $url = "http://localhost:$port"
   Start-Job { Start-Sleep -Seconds 10; Start-Process $using:url } | Out-Null
 
   Write-Host ''

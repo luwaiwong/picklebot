@@ -12,17 +12,18 @@
     "start": "npm run build && tsx src/server.ts",
     "typecheck": "tsc --noEmit && svelte-check --tsconfig ./web/tsconfig.json",
     "test": "tsx --test src/**/*.test.ts",
-    "install-browsers": "playwright install chromium",
-    "login": "tsx scripts/login.ts"
+    "install-browsers": "playwright install chromium"
   },
   "dependencies": {
     "@hono/node-server": "^1.13.7",
+    "canvas-confetti": "^1.9.4",
     "hono": "^4.6.14",
     "playwright": "^1.49.1",
     "zod": "^3.24.1"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^7.1.2",
+    "@types/canvas-confetti": "^1.9.0",
     "@types/node": "^22.10.2",
     "concurrently": "^10.0.0",
     "svelte": "^5.56.0",

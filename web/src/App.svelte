@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import confetti from 'canvas-confetti';
   import { subscribeEvents, getHealth } from './lib/api';
   import type { JobState } from './lib/types';
   import BookForm from './lib/BookForm.svelte';
@@ -15,8 +16,82 @@
   });
   // transient hint surfaced from the `login` SSE events during a booking's login step
   let loginHint = $state('');
+  let completionAudio: HTMLAudioElement | null = null;
+  let audioPrimed = false;
+  let sawRunningJob = false;
+  let completionSoundPlayed = false;
+
+  function getCompletionAudio() {
+    completionAudio ??= new Audio('/sounds/confetti-pop-sound.mp3');
+    completionAudio.preload = 'auto';
+    completionAudio.volume = 0.9;
+    return completionAudio;
+  }
+
+  function unlockAudio() {
+    if (audioPrimed) return;
+    const audio = getCompletionAudio();
+    const originalVolume = audio.volume;
+    audio.volume = 0;
+    void audio
+      .play()
+      .then(() => {
+        audio.pause();
+        audio.currentTime = 0;
+        audio.volume = originalVolume;
+        audioPrimed = true;
+      })
+      .catch(() => {
+        audio.volume = originalVolume;
+      });
+  }
+
+  function playCompletionSound() {
+    const audio = getCompletionAudio();
+    audio.currentTime = 0;
+    audio.volume = 0.9;
+    void audio.play().catch(() => {});
+  }
+
+  function launchConfetti() {
+    const colors = ['#6ee7b7', '#f9d65c', '#f97373', '#7dd3fc', '#c084fc', '#fb923c'];
+    void confetti({
+      particleCount: 90,
+      spread: 72,
+      startVelocity: 46,
+      scalar: 1.05,
+      colors,
+      origin: { x: 0.5, y: 0.62 },
+      disableForReducedMotion: true,
+    });
+    void confetti({
+      particleCount: 45,
+      angle: 60,
+      spread: 55,
+      startVelocity: 38,
+      colors,
+      origin: { x: 0.08, y: 0.78 },
+      disableForReducedMotion: true,
+    });
+    void confetti({
+      particleCount: 45,
+      angle: 120,
+      spread: 55,
+      startVelocity: 38,
+      colors,
+      origin: { x: 0.92, y: 0.78 },
+      disableForReducedMotion: true,
+    });
+  }
+
+  function triggerCompletionEffects() {
+    playCompletionSound();
+    launchConfetti();
+  }
 
   onMount(() => {
+    window.addEventListener('pointerdown', unlockAudio, { once: true });
+    window.addEventListener('keydown', unlockAudio, { once: true });
     // seed from health, then live-hydrate from SSE (server pushes a job snapshot on connect)
     getHealth()
       .then((h) => { if (h?.job) job = h.job; })
@@ -24,20 +99,42 @@
     const es = subscribeEvents((e) => {
       if (e.type === 'job') {
         job = e.state;
+        if (e.state.phase === 'running') {
+          sawRunningJob = true;
+          completionSoundPlayed = false;
+        }
+        if (
+          sawRunningJob &&
+          !completionSoundPlayed &&
+          e.state.phase === 'success' &&
+          e.state.lastStatus === 'booked'
+        ) {
+          completionSoundPlayed = true;
+          triggerCompletionEffects();
+        }
         if (e.state.phase !== 'running') loginHint = ''; // clear once the job settles
+      } else if (e.type === 'result') {
+        if (!completionSoundPlayed && e.result.ok && e.result.status === 'booked') {
+          completionSoundPlayed = true;
+          triggerCompletionEffects();
+        }
       } else if (e.type === 'login') {
         // login happens during a booking; logged-in continues to booking, failures land on the banner
         loginHint = e.state === 'logging-in' ? '● logging in…' : '';
       }
     });
-    return () => es.close();
+    return () => {
+      es.close();
+      window.removeEventListener('pointerdown', unlockAudio);
+      window.removeEventListener('keydown', unlockAudio);
+    };
   });
 </script>
 
 <header>
   <div class="brand">
     <span class="dot" class:run={job.phase === 'running'}></span>
-    <h1>Event Booker</h1>
+    <h1>picklebot</h1>
   </div>
   <div class="banner" class:run={job.phase === 'running'} class:ok={job.phase === 'success'} class:bad={job.phase === 'failed'}>
     {#if job.phase === 'running'}

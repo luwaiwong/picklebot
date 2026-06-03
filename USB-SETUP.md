@@ -23,7 +23,7 @@ PBALL\                 <- USB root, or any folder on the stick
 ├─ app\                the project source
 │   └─ node_modules\   created on first run
 ├─ browsers\           Playwright Chromium      (created on first run)
-├─ profile\            your saved Markham login  (created on first run)
+├─ profile\            your reused Markham session  (created on first run)
 └─ data\               bookings.log             (created on first run)
 ```
 
@@ -48,16 +48,17 @@ first run, and they bloat / are wrong-OS): `node_modules\`, `static\`, `.git\`, 
 
 So the minimum to copy into `PBALL\app\`:
 ```
-src\  web\  scripts\  static\index.html (and static\assets\)
+src\  web\  static\index.html (and static\assets\)
 package.json  package-lock.json
 svelte.config.js  vite.config.ts  tsconfig.json
 README.md
 ```
 (Copying the whole folder and deleting `node_modules\` / `.git\` afterward is fine too.)
 
-> **Optional — skip the login step:** if you already logged in on your dev machine, copy your
-> existing `.pball-profile\` to the stick as `PBALL\profile\`. Then the first run won't open the
-> sign-in browser. (It's your private session — only do this on a stick you control.)
+> **Reuse an existing session (optional):** the bot signs in automatically with the email +
+> password you enter in the UI, and saves the session to `PBALL\profile\`. If you already have a
+> `.pball-profile\` from your dev machine, copy it to `PBALL\profile\` to start pre-signed-in.
+> (It's your private session — only do this on a stick you control.)
 
 ### 3. The launcher
 Create `PBALL\pball-usb.bat` with exactly this content:
@@ -93,14 +94,6 @@ if not exist "%PLAYWRIGHT_BROWSERS_PATH%" (
   call npm run install-browsers || goto :fail
 )
 
-REM --- one-time login (persistent profile on the stick) ---
-if not exist "%PBALL_USER_DATA_DIR%" (
-  echo [pball] No saved login. A browser will open on the Markham sign-in page.
-  echo [pball] Sign in (solve the reCAPTCHA), then CLOSE the browser window.
-  pause
-  call npm run login || goto :fail
-)
-
 REM --- open the UI shortly after the server starts, then run the server (blocking) ---
 start "" cmd /c "timeout /t 10 >nul & start http://localhost:%PBALL_PORT%"
 echo.
@@ -123,8 +116,8 @@ pause
 ### 4. First run (do this once, on a Windows PC with internet)
 - Double-click `PBALL\pball-usb.bat`.
 - It will: `npm ci` (installs `node_modules\` on the stick) → download Chromium into `browsers\`
-  → (unless you copied a profile) open the sign-in browser for the one-time login → build the UI
-  and start the server. A browser tab opens at <http://localhost:8787>.
+  → build the UI and start the server. A browser tab opens at <http://localhost:8787>. You sign in
+  by entering your Markham email + password in the UI when you book.
 - When it finishes successfully once, the stick is fully provisioned.
 
 ---
@@ -151,9 +144,9 @@ No setup, no Node install, no admin — it reuses what's on the stick.
 - **USB speed:** Chromium launches noticeably faster from a USB 3.0 stick than a cheap USB 2.0 one.
 - **SmartScreen / antivirus** may warn on a `.bat` from removable media — allow it ("More info →
   Run anyway").
-- **Re-login when the session expires:** the UI shows a red *auth expired* line. Delete
-  `PBALL\profile\` and run the launcher again (it re-opens the sign-in browser), or run
-  `npm run login` from `PBALL\app\` with the same env vars set.
+- **Session expiry:** the bot re-signs-in automatically each time you book (using the email +
+  password you enter), so an expired session self-heals on the next booking. To start fresh,
+  delete `PBALL\profile\`.
 - **Faster relaunch (optional):** `npm run start` rebuilds the UI each launch. After the first
   successful build you can swap the last `call npm run start` line for
   `call npx tsx src/server.ts` to skip the rebuild and just serve the existing `static\`.

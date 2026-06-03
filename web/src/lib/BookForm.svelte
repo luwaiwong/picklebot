@@ -4,10 +4,38 @@
 
   let { phase }: { phase: JobPhase } = $props();
 
-  // creds are transient — held in component state for the request, never persisted.
-  let username = $state('');
-  let password = $state('');
-  let code = $state('');
+  // login and activity code are persisted client-side so the next open prefills them.
+  // (single-user localhost tool — password is stored in plaintext on this machine.)
+  const STORAGE_KEY = 'pball.login';
+
+  function loadSavedForm(): { username: string; password: string; code: string } {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return { username: '', password: '', code: '' };
+      const v = JSON.parse(raw);
+      return {
+        username: typeof v?.username === 'string' ? v.username : '',
+        password: typeof v?.password === 'string' ? v.password : '',
+        code: typeof v?.code === 'string' ? v.code : '',
+      };
+    } catch {
+      return { username: '', password: '', code: '' }; // storage unavailable/corrupt - start blank
+    }
+  }
+
+  function saveForm(username: string, password: string, code: string) {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ username, password, code }));
+    } catch {
+      /* storage unavailable — skip persisting */
+    }
+  }
+
+  const saved = loadSavedForm();
+  // form values are held in component state for the request; persisted on Book via saveForm().
+  let username = $state(saved.username);
+  let password = $state(saved.password);
+  let code = $state(saved.code);
   let err = $state('');
 
   const running = $derived(phase === 'running');
@@ -26,6 +54,7 @@
       err = 'Code must be numeric.';
       return;
     }
+    saveForm(u, p, c); // prefilled on next open
     const res = await book(c, u, p);
     if (res.status === 409) {
       err = 'A booking is already running — Stop it first.';
@@ -40,7 +69,6 @@
       err = res.data?.error ? String(res.data.error) : 'Could not start booking.';
       return;
     }
-    code = ''; // keep username/password in the fields for convenience; never persisted
   }
 
   async function handleStop() {
@@ -64,7 +92,7 @@
       aria-label="Email"
     />
     <input
-      type="password"
+      type="text"
       autocomplete="current-password"
       placeholder="Password"
       bind:value={password}

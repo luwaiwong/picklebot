@@ -1,4 +1,9 @@
-import { chromium, type BrowserContext, type Page } from "playwright";
+import {
+  chromium,
+  type BrowserContext,
+  type Locator,
+  type Page,
+} from "playwright";
 import { mkdir } from "node:fs/promises";
 import {
   BASE_URL,
@@ -15,7 +20,7 @@ import { ensureLoggedIn, type Creds } from "./auth.js";
 //   1. open the Classes page (default widget + calendar)
 //   2. find the row whose visible code (#NNNNNN == CourseId) matches the requested code
 //   3. click its button → navigate to the activity landing page
-//   4. refresh the landing page until its "Register" (a#bookEventButton) appears (bounded wait)
+//   4. refresh the landing page until its "Register" booking link appears (bounded wait)
 //   5. click it, then select the first family member on the attendee step
 // The landing "Register" is what we wait on: the site only renders it once registration opens,
 // so there is no early-booking risk. Selecting the attendee is the last step automated — the
@@ -23,6 +28,9 @@ import { ensureLoggedIn, type Creds } from "./auth.js";
 
 export const config = {
   pollIntervalMs: 1000,
+  registerFastWindowMs: 60 * 1000,
+  registerSlowRefreshMinMs: 5 * 1000,
+  registerSlowRefreshMaxMs: 15 * 1000,
   queueTimeoutMs: 15 * 60 * 1000,
   registerWaitMs: 10 * 60 * 1000,
   // Selectors for the BookMe4BookingPages/Classes list (verified live).
@@ -35,14 +43,49 @@ export const config = {
 
 type Emit = (e: LogEvent) => void;
 const nowIso = () => new Date().toISOString();
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      const e = new Error("aborted");
+      e.name = "AbortError";
+      reject(e);
+      return;
+    }
+    const timer = setTimeout(resolve, ms);
+    signal?.addEventListener(
+      "abort",
+      () => {
+        clearTimeout(timer);
+        const e = new Error("aborted");
+        e.name = "AbortError";
+        reject(e);
+      },
+      { once: true },
+    );
+  });
+}
+
+// Tear-down for the browser this process launched/attached to. Held at module scope so a new
+// run() can kill a window left open by a previous (kept-open) run, and so stop() can force the
+// current run's window closed — which makes any in-flight Playwright op reject immediately
+// instead of hanging until its own timeout. A persistent profile allows ONE live Chromium at a
+// time, so a leftover window must be closed before the next launch or it freezes on startup.
+let activeCleanup: (() => Promise<void>) | null = null;
+
+// Close whatever browser this process currently owns, if any. Idempotent and never throws.
+export async function closeActive(): Promise<void> {
+  const c = activeCleanup;
+  activeCleanup = null;
+  if (c) await c().catch(() => {});
+}
 
 // One scanned row on the Classes list, in the page's own words.
 interface Row {
+  index: number; // row position in the page, used to click the matched row's button
   code: string; // visible code with leading '#' stripped, e.g. "310024"
   title: string; // activity title from .bm-class-title
   value: string; // button value: "Register" | "More Info"
-  btnId: string; // input id, used to click the exact row
+  btnId: string; // input id, retained for diagnostics
 }
 
 export async function run(
@@ -73,20 +116,27 @@ export async function run(
 
   // Browser source:
   //   PBALL_CDP_URL set → attach to an already-running browser (its login + queue-it carry over)
-  //   otherwise         → launch a persistent on-disk profile; log in once via `npm run login`,
-  //                       reused every run (no auth.json).
+  //   otherwise         → launch a persistent on-disk profile; the bot signs in with your creds
+  //                       at the start of each run (the session is reused while still valid).
   const cdpUrl = process.env.PBALL_CDP_URL;
   const userDataDir = process.env.PBALL_USER_DATA_DIR ?? ".pball-profile";
 
   let cleanup: () => Promise<void> = async () => {};
   // when true, skip cleanup so the Chrome window stays open after a successful run.
   let keepBrowserOpen = false;
+  let browserWindowClosed = false;
+  // reset completely: kill any window a previous run left open before launching a new one, so the
+  // persistent profile is free and we never collide with a stale Chromium instance.
+  await closeActive();
   try {
     let ctx: BrowserContext;
     let page: Page;
     if (cdpUrl) {
       // reuse the user's existing browser; open our OWN tab so we never hijack their open tabs.
       const browser = await chromium.connectOverCDP(cdpUrl);
+      browser.on("disconnected", () => {
+        browserWindowClosed = true;
+      });
       ctx = browser.contexts()[0] ?? (await browser.newContext());
       page = await ctx.newPage();
       // over CDP, close() only disconnects — it must NOT terminate the user's browser.
@@ -94,6 +144,7 @@ export async function run(
         await page.close().catch(() => {});
         await browser.close().catch(() => {});
       };
+      activeCleanup = cleanup;
       log("info", `attached to existing browser at ${cdpUrl}`);
     } else {
       // persistent profile holds the login across runs. Visible by default; PBALL_HEADLESS=1 to hide.
@@ -104,7 +155,14 @@ export async function run(
       cleanup = async () => {
         await ctx.close().catch(() => {});
       };
+      activeCleanup = cleanup;
     }
+    ctx.on("close", () => {
+      browserWindowClosed = true;
+    });
+    page.on("close", () => {
+      browserWindowClosed = true;
+    });
 
     // esbuild/tsx wraps named functions with a `__name` helper that doesn't exist in the page
     // context; shim it so serialized page.evaluate callbacks run. Persists across reloads.
@@ -150,10 +208,12 @@ export async function run(
       matches.find((m) => m.value.toLowerCase() === "register") ?? matches[0]!;
     log("info", `matched #${code}: ${target.title} [${target.value}]`);
 
-    // ── click the row's button → navigate to the activity landing page ──
-    const rowBtn = target.btnId
-      ? page.locator(`#${cssEscape(target.btnId)}`)
-      : page.locator(config.sel.button).first();
+    // ── click the matched row's button → navigate to the activity landing page ──
+    const rowBtn = page
+      .locator(config.sel.row)
+      .nth(target.index)
+      .locator(config.sel.button)
+      .first();
     await rowBtn.click();
     await page
       .waitForURL((u) => !/BookMe4BookingPages\/Classes/i.test(u.toString()), {
@@ -167,7 +227,7 @@ export async function run(
       .screenshot({ path: `debug/clicked-${code}.png` })
       .catch(() => {});
     if (/MemberRegistration\/MemberSignIn/i.test(page.url())) {
-      log("error", "redirected to sign-in — run `npm run login` to re-login");
+      log("error", "redirected to sign-in mid-flow — session lost; re-Book to log in again");
       return result("auth-expired", false, {
         detail: "not logged in at click",
       });
@@ -177,24 +237,31 @@ export async function run(
     // ── bounded retry-until-open: refresh the landing page until its Register button appears ──
     const deadline = Date.now() + config.registerWaitMs;
     let warnedMissing = false;
+    let refreshCount = 0;
     while (Date.now() < deadline) {
       throwIfAborted();
-      const btn = page.locator("a#bookEventButton").first();
+      const btn = landingRegisterButton(page);
       const found = await btn
-        .waitFor({ state: "visible", timeout: config.pollIntervalMs * 3 })
+        .waitFor({ state: "visible", timeout: config.pollIntervalMs })
         .then(() => true)
         .catch(() => false);
       if (found) break;
+      const refreshDelayMs = await nextRegisterRefreshDelayMs(page);
       if (!warnedMissing) {
-        log("info", "register button not present yet — refreshing landing");
+        log("info", "register button not present yet");
         warnedMissing = true; // don't spam every poll
       }
-      await sleep(config.pollIntervalMs);
+      log(
+        "info",
+        `refreshing for #${code} in ${Math.round(refreshDelayMs / 1000)}s (${refreshCount + 1})`,
+      );
+      await sleep(refreshDelayMs, signal);
+      refreshCount += 1;
       await page.reload({ waitUntil: "domcontentloaded" }).catch(() => {});
       await passQueueIfPresent(page, code, emit, log, signal);
     }
     throwIfAborted();
-    const landingRegister = page.locator("a#bookEventButton").first();
+    const landingRegister = landingRegisterButton(page);
     if (!(await landingRegister.isVisible().catch(() => false))) {
       return result("no-slot", false, {
         detail: "Register button never appeared within wait window",
@@ -206,7 +273,7 @@ export async function run(
     await passQueueIfPresent(page, code, emit, log, signal);
     await page.waitForLoadState("domcontentloaded").catch(() => {});
     if (/MemberRegistration\/MemberSignIn/i.test(page.url())) {
-      log("error", "redirected to sign-in — run `npm run login` to re-login");
+      log("error", "redirected to sign-in mid-flow — session lost; re-Book to log in again");
       return result("auth-expired", false, {
         detail: "not logged in at attendee step",
       });
@@ -242,9 +309,15 @@ export async function run(
       detail: `attendee selected → ${page.url()}`,
     });
   } catch (e) {
-    if (e instanceof Error && e.name === "AbortError") {
+    // a user stop() force-closes the browser, so the failing op may throw "Target closed" rather
+    // than our AbortError — treat anything that happens after abort as a clean cancel.
+    if (signal?.aborted || (e instanceof Error && e.name === "AbortError")) {
       log("warn", "stopped by user");
       return result("cancelled", false, { detail: "stopped by user" });
+    }
+    if (browserWindowClosed || isBrowserClosedError(e)) {
+      log("warn", "browser window closed — stopping booking");
+      return result("cancelled", false, { detail: "browser window closed" });
     }
     if (e instanceof Error && e.name === "QueueTimeout") {
       log("error", e.message);
@@ -254,7 +327,13 @@ export async function run(
     log("error", msg);
     return result("error", false, { detail: msg });
   } finally {
-    if (!keepBrowserOpen) await cleanup();
+    if (keepBrowserOpen) {
+      // window stays open: keep activeCleanup pointing at it so the next run/stop can close it.
+    } else {
+      await cleanup();
+      // only clear if still ours — a concurrent stop() may have already swapped/cleared it.
+      if (activeCleanup === cleanup) activeCleanup = null;
+    }
   }
 }
 
@@ -264,7 +343,7 @@ async function scan(page: Page): Promise<Row[]> {
     const out: Row[] = [];
     const clean = (s: string | null | undefined) =>
       (s ?? "").replace(/\s+/g, " ").trim();
-    document.querySelectorAll(sel.row).forEach((tr) => {
+    document.querySelectorAll(sel.row).forEach((tr, index) => {
       const q = (s: string) => clean(tr.querySelector(s)?.textContent);
       const btn = tr.querySelector(sel.button) as HTMLInputElement | null;
       // Multiple span.bm-event-description per row (the title reuses the class) — pick the
@@ -275,6 +354,7 @@ async function scan(page: Page): Promise<Row[]> {
         if (m && !code) code = m[1]!;
       });
       out.push({
+        index,
         code,
         title: q(".bm-class-title"),
         value: clean(btn?.getAttribute("value")),
@@ -287,9 +367,76 @@ async function scan(page: Page): Promise<Row[]> {
 
 // ── helpers ──
 
-/** Minimal CSS.escape for element ids (the booker only ever escapes simple bm-book-button-NNN ids). */
-function cssEscape(id: string): string {
-  return id.replace(/([^a-zA-Z0-9_-])/g, "\\$1");
+function isBrowserClosedError(e: unknown): boolean {
+  if (!(e instanceof Error)) return false;
+  return /(?:target|page|context|browser).*(?:closed|disconnected)/i.test(
+    e.message,
+  );
+}
+
+function landingRegisterButton(page: Page): Locator {
+  return page
+    .locator(
+      [
+        'a[href*="/Clients/BookMe4EventParticipants"]',
+        "a.bm-book-button",
+        "a#bookButton",
+        "a#bookEventButton",
+        'a[aria-label^="Register"]',
+      ].join(", "),
+    )
+    .filter({ hasText: /^\s*Register\s*$/i })
+    .first();
+}
+
+async function nextRegisterRefreshDelayMs(page: Page): Promise<number> {
+  const registrationStartMs = await registrationStartTimeMs(page);
+  const msUntilRegistration =
+    registrationStartMs === null ? null : registrationStartMs - Date.now();
+  if (
+    msUntilRegistration !== null &&
+    msUntilRegistration <= config.registerFastWindowMs
+  ) {
+    return config.pollIntervalMs;
+  }
+  return randomInt(
+    config.registerSlowRefreshMinMs,
+    config.registerSlowRefreshMaxMs,
+  );
+}
+
+async function registrationStartTimeMs(page: Page): Promise<number | null> {
+  return page
+    .evaluate(() => {
+      const info = (
+        window as unknown as {
+          eventInfo?: Record<string, unknown>;
+        }
+      ).eventInfo;
+      if (!info) return null;
+      const names = [
+        "PublicRegistrationStartDateWithOffset",
+        "ResidentsRegistrationDateWithOffset",
+        "MembersRegistrationDateWithOffset",
+        "PublicRegistrationStartDateValue",
+        "ResidentsRegistrationDateValue",
+        "MembersRegistrationDateValue",
+      ];
+      const timestamps = names
+        .map((name) => info[name])
+        .filter((value): value is string => typeof value === "string" && value.length > 0)
+        .map((value) => Date.parse(value))
+        .filter((value) => Number.isFinite(value));
+      if (timestamps.length === 0) return null;
+      const now = Date.now();
+      const future = timestamps.filter((value) => value > now);
+      return Math.min(...(future.length > 0 ? future : timestamps));
+    })
+    .catch(() => null);
+}
+
+function randomInt(min: number, max: number): number {
+  return Math.floor(Math.random() * (max - min + 1)) + min;
 }
 
 // ── Queue-it: detect by host, wait passively until redirected back; tokens are server-signed ──

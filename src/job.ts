@@ -79,6 +79,10 @@ export const jobManager = {
   stop(): { stopped: boolean; state: JobState } {
     if (running && abort) {
       abort.abort();
+      // force the browser closed too: cooperative abort only fires at our own checkpoints, so a
+      // long in-flight Playwright op (e.g. a 20s waitFor) would otherwise freeze until it times
+      // out. Closing the context makes that op reject immediately → instant cancel.
+      void booker.closeActive();
       return { stopped: true, state: snapshot() };
     }
     return { stopped: false, state: snapshot() };
