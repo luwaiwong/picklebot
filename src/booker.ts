@@ -28,9 +28,9 @@ import { ensureLoggedIn, type Creds } from "./auth.js";
 
 export const config = {
   pollIntervalMs: 1000,
-  registerFastWindowMs: 60 * 1000,
-  registerSlowRefreshMinMs: 5 * 1000,
-  registerSlowRefreshMaxMs: 15 * 1000,
+  registerExactWindowMs: 5 * 1000,
+  registerPostOpenWindowMs: 5 * 60 * 1000,
+  registerBurstRefreshMs: 200,
   queueTimeoutMs: 15 * 60 * 1000,
   registerWaitMs: 10 * 60 * 1000,
   // Selectors for the BookMe4BookingPages/Classes list (verified live).
@@ -393,16 +393,25 @@ async function nextRegisterRefreshDelayMs(page: Page): Promise<number> {
   const registrationStartMs = await registrationStartTimeMs(page);
   const msUntilRegistration =
     registrationStartMs === null ? null : registrationStartMs - Date.now();
-  if (
-    msUntilRegistration !== null &&
-    msUntilRegistration <= config.registerFastWindowMs
-  ) {
-    return config.pollIntervalMs;
+  if (msUntilRegistration !== null) {
+    // Within the exact window: schedule the next reload to land precisely when
+    // the current booking target's registration window opens.
+    if (
+      msUntilRegistration > 0 &&
+      msUntilRegistration <= config.registerExactWindowMs
+    ) {
+      return msUntilRegistration;
+    }
+    // Just after registration opened, within the post-open window: burst-refresh.
+    if (
+      msUntilRegistration <= 0 &&
+      msUntilRegistration >= -config.registerPostOpenWindowMs
+    ) {
+      return config.registerBurstRefreshMs;
+    }
   }
-  return randomInt(
-    config.registerSlowRefreshMinMs,
-    config.registerSlowRefreshMaxMs,
-  );
+  // Fast refresh otherwise.
+  return config.pollIntervalMs;
 }
 
 async function registrationStartTimeMs(page: Page): Promise<number | null> {
@@ -433,10 +442,6 @@ async function registrationStartTimeMs(page: Page): Promise<number | null> {
       return Math.min(...(future.length > 0 ? future : timestamps));
     })
     .catch(() => null);
-}
-
-function randomInt(min: number, max: number): number {
-  return Math.floor(Math.random() * (max - min + 1)) + min;
 }
 
 // ── Queue-it: detect by host, wait passively until redirected back; tokens are server-signed ──
