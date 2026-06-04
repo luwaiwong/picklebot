@@ -54,10 +54,16 @@ if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
 }
 
 try {
-  # --- first run: install deps + Playwright Chromium ---
-  if (-not (Test-Path 'node_modules')) {
+  # --- install/update deps every run; install Playwright Chromium on first run ---
+  $firstRun = -not (Test-Path 'node_modules')
+  if ($firstRun) {
     Write-Host '[pball] Installing dependencies (first run, may take a few minutes)...'
-    npm install
+  }
+  else {
+    Write-Host '[pball] Updating dependencies...'
+  }
+  npm install
+  if ($firstRun) {
     Write-Host '[pball] Installing Playwright Chromium...'
     npm run install-browsers
   }
