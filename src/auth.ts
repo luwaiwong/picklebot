@@ -9,7 +9,8 @@ export interface Creds {
 }
 
 // Headless email/password sign-in into the Markham member portal. Verified live selectors:
-//   form #logonform → #textBoxUsername, #textBoxPassword, submit #buttonLogin.
+//   form #logonform → #textBoxUsername, #textBoxPassword, submit = the "Login" button
+//   (matched by accessible name; prefer type=submit when several match).
 //   __RequestVerificationToken is already in the DOM (Playwright submits it). No captcha on the
 //   sign-in form (the page's reCAPTCHA belongs to the separate signup form).
 // Drives whatever `page` it's given so the session lands in that context's persistent profile.
@@ -59,7 +60,14 @@ export async function ensureLoggedIn(
     await userBox.fill(creds.username);
     await page.locator("#textBoxPassword").fill(creds.password);
     throwIfAborted();
-    await page.locator("#buttonLogin").click();
+    // Click the "Login" button by its accessible name (input value or button text);
+    // if more than one matches, narrow to the submit-type one.
+    const loginButtons = page.getByRole("button", { name: "Login" });
+    const loginButton =
+      (await loginButtons.count()) > 1
+        ? loginButtons.and(page.locator('[type="submit"]')).first()
+        : loginButtons.first();
+    await loginButton.click();
     await page.waitForLoadState("networkidle").catch(() => {});
     throwIfAborted();
 
