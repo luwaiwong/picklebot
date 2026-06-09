@@ -73,12 +73,11 @@ can't be solved headlessly — re-Book to retry (the session is reused while it 
 
 | path | role |
 |---|---|
-| `src/shared/types.ts` | zod `BookRequest` schema (code + creds) + job/result/event/login types + constants |
+| `src/shared/types.ts` | zod booking request schema (code + creds) + job/result/event/login types + constants |
 | `src/events.ts` | SSE bus + `bookings.log` audit trail |
 | `src/auth.ts` | headless email/password sign-in routine (`ensureLoggedIn`); creds never persisted/logged |
 | `src/booker.ts` | Playwright worker: login-then find-by-code, queue-it, wait-for-Register, attendee select |
 | `src/job.ts` | single active-job manager (start / stop / snapshot, broadcasts `JobState`) |
-| `src/profile.ts` | single-profile mutex (one Chromium drives the profile at a time) |
-| `src/server.ts` | Hono REST (`/api/book`, `/api/stop`, `/api/health`) + SSE + static UI |
+| `src/server.ts` | Hono REST (`/api/book`, `/api/stop`) + SSE + static UI |
 | `web/` | Vite + Svelte 5 frontend (book form with code + creds, live log); `web/src/App.svelte` is the root |
 | `static/` | **generated** by `vite build` (gitignored); Hono serves it as the UI |

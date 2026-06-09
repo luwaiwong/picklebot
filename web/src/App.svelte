@@ -1,10 +1,11 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import confetti from 'canvas-confetti';
-  import { subscribeEvents, getHealth } from './lib/api';
+  import { subscribeEvents } from './lib/api';
   import type { JobState } from './lib/types';
   import BookForm from './lib/BookForm.svelte';
   import LiveLog from './lib/LiveLog.svelte';
+  import UpdateLog from './lib/UpdateLog.svelte';
 
   let job = $state<JobState>({
     phase: 'idle',
@@ -92,10 +93,6 @@
   onMount(() => {
     window.addEventListener('pointerdown', unlockAudio, { once: true });
     window.addEventListener('keydown', unlockAudio, { once: true });
-    // seed from health, then live-hydrate from SSE (server pushes a job snapshot on connect)
-    getHealth()
-      .then((h) => { if (h?.job) job = h.job; })
-      .catch(() => { /* banner stays idle */ });
     const es = subscribeEvents((e) => {
       if (e.type === 'job') {
         job = e.state;
@@ -166,6 +163,8 @@
     <LiveLog />
   </section>
 </main>
+
+<UpdateLog />
 
 <style>
   .brand .dot.run { animation: blink 1.1s ease-in-out infinite; }

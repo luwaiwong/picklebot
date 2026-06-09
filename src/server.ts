@@ -5,6 +5,7 @@ import { streamSSE } from 'hono/streaming';
 import { BookRequestSchema, type LogEvent } from './shared/types.js';
 import { events } from './events.js';
 import { jobManager } from './job.js';
+import { closeActive } from './booker.js';
 
 const app = new Hono();
 
@@ -24,10 +25,6 @@ app.post('/api/stop', (c) => {
   const r = jobManager.stop();
   return c.json(r);
 });
-
-app.get('/api/health', (c) =>
-  c.json({ uptimeSec: Math.round(process.uptime()), job: jobManager.snapshot() }),
-);
 
 app.get('/events', (c) =>
   streamSSE(c, async (stream) => {
@@ -52,3 +49,22 @@ app.get(
 
 const port = Number(process.env.PBALL_PORT ?? 8787);
 serve({ fetch: app.fetch, port }, (info) => console.log(`pball UI → http://localhost:${info.port}`));
+
+// Close any browser this process owns on shutdown so a stop/restart never orphans a Chromium
+// holding the persistent profile (which would otherwise freeze the next launch). stop() only
+// closes a browser while a job is RUNNING, so the keep-open-after-success window needs the
+// explicit closeActive() here too.
+let shuttingDown = false;
+const shutdown = async () => {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  try {
+    jobManager.stop();
+    await closeActive();
+  } finally {
+    process.exit(0);
+  }
+};
+for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) {
+  process.on(sig, () => void shutdown());
+}

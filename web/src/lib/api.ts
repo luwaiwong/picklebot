@@ -1,4 +1,4 @@
-import type { Health, LogEvent } from './types';
+import type { LogEvent } from './types';
 
 // POST /api/book — log in with the given creds then start an on-demand booking.
 // Creds are sent per booking; the UI persists them client-side (localStorage) for prefill, never server-side.
@@ -19,10 +19,6 @@ export async function book(
 // POST /api/stop — cancel the running job. Returns { stopped, state }.
 export async function stop(): Promise<any> {
   return fetch('/api/stop', { method: 'POST' }).then((r) => r.json());
-}
-
-export async function getHealth(): Promise<Health> {
-  return fetch('/api/health').then((r) => r.json());
 }
 
 export function subscribeEvents(onEvent: (e: LogEvent) => void): EventSource {

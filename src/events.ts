@@ -27,11 +27,6 @@ class Bus {
     }
   }
 
-  log(level: 'info' | 'warn' | 'error', msg: string, code?: string): void {
-    this.emit({ type: 'log', level, msg, code, at: new Date().toISOString() });
-    console.log(`[${level}] ${msg}`);
-  }
-
   /** Replays the ring buffer to the new sink, then streams live. Returns an unsubscribe fn. */
   subscribe(sink: Sink): () => void {
     for (const e of this.ring) {

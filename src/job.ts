@@ -1,6 +1,5 @@
 import { events } from "./events.js";
 import * as booker from "./booker.js";
-import { profileLock } from "./profile.js";
 import type { Creds } from "./auth.js";
 import type { JobState } from "./shared/types.js";
 
@@ -36,8 +35,7 @@ export const jobManager = {
     code: string,
     creds: Creds,
   ): { ok: boolean; busy?: boolean; state: JobState } {
-    // single-profile mutex: rejects if a job is already running OR a login window is open.
-    if (!profileLock.acquire("booking")) {
+    if (running) {
       return { ok: false, busy: true, state: snapshot() };
     }
     state.phase = "running";
@@ -50,9 +48,13 @@ export const jobManager = {
     emitJob();
 
     const ac = abort;
+    // Spin up PBALL_WINDOWS independent windows (each its own profile/session → its own Queue-it
+    // position) racing for the same code; the first to book wins. Defaults to 4; set 1 for the
+    // classic single-window run. runRace short-circuits to a plain run() when windows === 1.
+    const windows = Number(process.env.PBALL_WINDOWS ?? "4");
     // fire-and-forget: the route returns immediately; settle updates JobState.
     running = booker
-      .run(code, (e) => events.emit(e), ac.signal, creds)
+      .runRace(code, (e) => events.emit(e), ac.signal, creds, windows)
       .then(
         (result) => {
           state.phase = result.ok ? "success" : "failed";
@@ -69,7 +71,6 @@ export const jobManager = {
         state.finishedAt = iso();
         running = null;
         abort = null;
-        profileLock.release("booking");
         emitJob();
       });
 

@@ -4,6 +4,7 @@ static/
 auth.json
 creds.json
 .pball-profile/
+.pball-profile-*/
 targets.json
 bookings.log
 capture.json

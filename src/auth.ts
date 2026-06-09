@@ -19,8 +19,8 @@ type Emit = (e: LogEvent) => void;
 const iso = () => new Date().toISOString();
 const SIGNIN_URL = `${BASE_URL}/Menu/MemberRegistration/MemberSignIn`;
 
-export type LoginStatus = "ok" | "login-failed" | "challenge" | "error";
-export interface LoginOutcome {
+type LoginStatus = "ok" | "login-failed" | "challenge" | "error";
+interface LoginOutcome {
   ok: boolean;
   status: LoginStatus;
   detail?: string;
@@ -68,11 +68,18 @@ export async function ensureLoggedIn(
         ? loginButtons.and(page.locator('[type="submit"]')).first()
         : loginButtons.first();
     await loginButton.click();
+    // networkidle (NOT domcontentloaded): the post-login POST redirects, and the challenge/
+    // form checks below must run on the SETTLED destination page. domcontentloaded can return on
+    // the pre-redirect sign-in page, so detectChallenge then catches a transient recaptcha/device-
+    // token state and false-fails with "captcha/device verification". Login is one-time per run,
+    // not the race-critical path, so the extra wait is worth the reliability.
     await page.waitForLoadState("networkidle").catch(() => {});
     throwIfAborted();
 
-    await mkdir("debug", { recursive: true }).catch(() => {});
-    await page.screenshot({ path: "debug/login.png" }).catch(() => {});
+    if (process.env.PBALL_DEBUG === "1") {
+      await mkdir("debug", { recursive: true }).catch(() => {});
+      await page.screenshot({ path: "debug/login.png" }).catch(() => {});
+    }
 
     // captcha / device-verification challenge → we can't solve it headlessly.
     if (await detectChallenge(page)) {
@@ -112,9 +119,15 @@ async function detectChallenge(page: Page): Promise<boolean> {
       const widget = form?.querySelector('.g-recaptcha, iframe[src*="recaptcha"]');
       const recaptchaVisible =
         !!widget && (widget as HTMLElement).offsetParent !== null;
-      const hasDeviceToken = !!document.querySelector(
+      // __deviceVerificationToken is a PERMANENT empty hidden field on the sign-in form (present
+      // even before any login attempt) — its mere presence is NOT a challenge. A real device
+      // verification populates it with a value, so gate on a non-empty value, not existence.
+      // (Previously this false-positived on every failed login, masking "incorrect password" as a
+      // device challenge.)
+      const tokEl = document.querySelector(
         '[name="__deviceVerificationToken"], #__deviceVerificationToken',
-      );
+      ) as HTMLInputElement | null;
+      const hasDeviceToken = !!tokEl && (tokEl.value ?? "").trim().length > 0;
       const bodyText = (document.body?.innerText ?? "").toLowerCase();
       const verifyText = /verification code|verify your device|enter the code/.test(
         bodyText,
