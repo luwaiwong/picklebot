@@ -2,6 +2,7 @@ node_modules/
 dist/
 static/
 auth.json
+creds.json
 .pball-profile/
 targets.json
 bookings.log
