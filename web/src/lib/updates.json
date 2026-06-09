@@ -1,0 +1,54 @@
+{
+  "updates": [
+    {
+      "id": "2026-06-09-perf-improvmeents",
+      "date": "2026-06-09",
+      "title": "",
+      "tag": "feature",
+      "changes": [
+        "Speed: Registration click speed should be improved",
+        "Speed: Participant checklist item selector should be MUCH faster",
+        "Multi Window: Now opens 4 windows at once for (hopefully) better chance of registration"
+      ]
+    },
+    {
+      "id": "2026-06-09-update-shower",
+      "date": "2026-06-09",
+      "title": "Test Update",
+      "tag": "feature",
+      "changes": [
+        "The latest change now slides in from the side when you open the page — you're reading it.",
+        "Dismiss it with ✕, then tap the ✦ button any time to read it again.",
+        "Fully client-side: the changelog ships inside the app, no server call."
+      ]
+    },
+    {
+      "id": "2026-06-09-creds-untracked",
+      "date": "2026-06-09",
+      "title": "Credentials stay local",
+      "tag": "fix",
+      "changes": [
+        "creds.json is no longer tracked by git and is covered by .gitignore.",
+        "Login + activity code still prefill from this browser only (localStorage), never the server."
+      ]
+    },
+    {
+      "id": "2026-06-05-login-hardening",
+      "date": "2026-06-05",
+      "title": "Steadier login",
+      "tag": "fix",
+      "changes": [
+        "Reworked the auth flow so a flaky login surfaces on the banner instead of silently stalling."
+      ]
+    },
+    {
+      "id": "2026-06-03-booker-speed",
+      "date": "2026-06-03",
+      "title": "Faster booking run",
+      "tag": "speed",
+      "changes": [
+        "Trimmed the booker's path to the register click for a quicker grab the instant a slot opens."
+      ]
+    }
+  ]
+}
