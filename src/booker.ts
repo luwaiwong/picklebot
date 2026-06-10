@@ -390,6 +390,13 @@ export async function run(
     while (Date.now() < deadline) {
       throwIfAborted();
       const btn = landingRegisterButton(page);
+      // Button-first: if the Register link is ALREADY live in this DOM, click it — regardless of
+      // the per-tier schedule below. Tiers open at different times (Residents up to 18h before
+      // Public), and nextRegisterRefresh keys off the MIN *future* tier date; during an early-access
+      // window the button is rendered for THIS account while that schedule still reads "pre-open"
+      // (preOpen=true) and would otherwise sleep+reload until the deadline without ever clicking.
+      // isVisible() is non-blocking (instant current-state read), so this never burns the window.
+      if (await btn.isVisible().catch(() => false)) break;
       // Pick the refresh cadence FIRST, then bound the visible-check by it. Previously a fixed 1s
       // waitFor ran before the reload every cycle, so the 200ms burst the scheduler picks at open
       // was really ~1.2s and detection lagged the opening by over a second. Now the check never
